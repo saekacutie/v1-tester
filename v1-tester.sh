@@ -312,13 +312,20 @@ start_ssh_server() {
 }
 
 # --- Function: Create SOCKS5 Tunnel (Fixed with expect) ---
+# --- Function: Create SOCKS5 Tunnel (Fixed Temp Path) ---
 create_socks_tunnel() {
-    log_message "INFO" "Creating SOCKS5 tunnel on port $DEFAULT_SOCKS_PORT..."
+    echo -e "\n${CYAN}[*]${RESET} Creating SOCKS5 tunnel on port $DEFAULT_SOCKS_PORT..."
     
     pkill -f "ssh -D $DEFAULT_SOCKS_PORT" 2>/dev/null || true
     pkill -f "expect" 2>/dev/null || true
+    pkill socat 2>/dev/null || true
     
-    cat > /tmp/ssh-tunnel.exp <<EOF
+    # Use Termux-compatible temp directory
+    mkdir -p "$PREFIX/tmp"
+    local EXPECT_SCRIPT="$PREFIX/tmp/ssh-tunnel.exp"
+    
+    # Create expect script for SSH authentication
+    cat > "$EXPECT_SCRIPT" <<EOF
 #!/usr/bin/expect -f
 set timeout 10
 spawn ssh -D $DEFAULT_SOCKS_PORT -N -o StrictHostKeyChecking=no -o UserKnownHostsFile=/dev/null root@127.0.0.1 -p $DEFAULT_SSH_PORT
@@ -329,31 +336,33 @@ expect {
 }
 EOF
     
-    chmod +x /tmp/ssh-tunnel.exp
-    /tmp/ssh-tunnel.exp &
+    chmod +x "$EXPECT_SCRIPT"
+    "$EXPECT_SCRIPT" &
     local expect_pid=$!
     
     sleep 3
     
     if netstat -tlnp 2>/dev/null | grep -q "$DEFAULT_SOCKS_PORT"; then
-        log_message "SUCCESS" "SOCKS5 proxy active on 127.0.0.1:$DEFAULT_SOCKS_PORT"
+        glowing_progress "SOCKS5 proxy active on 127.0.0.1:$DEFAULT_SOCKS_PORT" 2
+        rm -f "$EXPECT_SCRIPT"
         return 0
     fi
     
-    # Fallback to socat
+    # Fallback to socat direct tunnel
     log_message "WARN" "SSH tunnel failed. Using socat direct tunnel..."
-    pkill socat 2>/dev/null || true
     
     local SNI=$(cat "$SNI_CACHE" 2>/dev/null || echo "maya.ph")
     socat TCP-LISTEN:$DEFAULT_SOCKS_PORT,fork,reuseaddr EXEC:"echo -e 'GET https://$SNI/ HTTP/1.1\r\nHost: $SNI\r\nUser-Agent: Mozilla/5.0\r\nConnection: Upgrade\r\nUpgrade: websocket\r\n\r\n' & cat" &
     
     sleep 2
     if netstat -tlnp 2>/dev/null | grep -q "$DEFAULT_SOCKS_PORT"; then
-        log_message "SUCCESS" "Socat proxy active on 127.0.0.1:$DEFAULT_SOCKS_PORT"
+        glowing_progress "Socat proxy active on 127.0.0.1:$DEFAULT_SOCKS_PORT" 2
+        rm -f "$EXPECT_SCRIPT"
         return 0
     fi
     
-    log_message "ERROR" "All tunnel methods failed."
+    log_message "ERROR" "All tunnel methods failed"
+    rm -f "$EXPECT_SCRIPT"
     return 1
 }
 
