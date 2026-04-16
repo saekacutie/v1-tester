@@ -32,6 +32,18 @@ LOG_FILE="$CONFIG_DIR/tunnel.log"
 SNI_CACHE="$CONFIG_DIR/sni_cache.txt"
 PAYLOAD_CACHE="$CONFIG_DIR/payload_cache.txt"
 
+# --- Required Packages List ---
+REQUIRED_PACKAGES=(
+    "openssh"
+    "curl"
+    "socat"
+    "netcat-openbsd"
+    "jq"
+    "expect"
+    "tor"
+    "privoxy"
+)
+
 # --- SNI Bug Hosts Database (TNT/Smart Verified) ---
 declare -a SNI_HOSTS=(
     "maya.ph"
@@ -56,7 +68,32 @@ declare -a USER_AGENTS=(
 
 mkdir -p "$CONFIG_DIR"
 
-# --- Banner (Clean, No Box Lines) ---
+# --- Glowing Banner Animation ---
+glowing_banner() {
+    clear
+    local colors=("$LBLUE" "$CYAN" "$LCYAN" "$WHITE" "$LCYAN" "$CYAN" "$LBLUE")
+    local text="V1 TESTER PROTOCOL"
+    local width=40
+    
+    for ((i=0; i<3; i++)); do
+        clear
+        echo ""
+        echo -e "${colors[$i]}    ██╗   ██╗ ██╗    ${LBLUE}████████╗███████╗███████╗████████╗███████╗██████╗${RESET}"
+        echo -e "${colors[$((i+1))]}    ██║   ██║ ██║    ${LBLUE}╚══██╔══╝██╔════╝██╔════╝╚══██╔══╝██╔════╝██╔══██╗${RESET}"
+        echo -e "${colors[$((i+2))]}    ██║   ██║ ██║       ${LBLUE}██║   █████╗  ███████╗   ██║   █████╗  ██████╔╝${RESET}"
+        echo -e "${colors[$((i+3))]}    ╚██╗ ██╔╝ ██║       ${LBLUE}██║   ██╔══╝  ╚════██║   ██║   ██╔══╝  ██╔══██╗${RESET}"
+        echo -e "${colors[$((i+2))]}     ╚████╔╝  ███████╗  ${LBLUE}██║   ███████╗███████║   ██║   ███████╗██║  ██║${RESET}"
+        echo -e "${colors[$((i+1))]}      ╚═══╝   ╚══════╝  ${LBLUE}╚═╝   ╚══════╝╚══════╝   ╚═╝   ╚══════╝╚═╝  ╚═╝${RESET}"
+        echo ""
+        echo -e "${BOLD}${BLUE}    ══════════════════════════════════════════════════════════════${RESET}"
+        echo -e "${BOLD}${WHITE}    PROTOCOL v${SCRIPT_VERSION}${RESET}  ${CYAN}TNT No-Load Auto Tunnel${RESET}"
+        echo -e "${BOLD}${PURPLE}    Created by Prvtspyyy404${RESET}"
+        echo -e "${BOLD}${BLUE}    ══════════════════════════════════════════════════════════════${RESET}"
+        echo ""
+        sleep 0.15
+    done
+}
+
 show_banner() {
     clear
     echo ""
@@ -90,32 +127,89 @@ log_message() {
     esac
 }
 
-# --- Function: Install Dependencies (With Verification) ---
-install_dependencies() {
-    log_message "INFO" "Installing required packages..."
+# --- Function: Animated Loading Spinner ---
+spinner() {
+    local pid=$1
+    local message=$2
+    local spinstr='|/-\'
+    local i=0
+    while kill -0 "$pid" 2>/dev/null; do
+        printf "\r${CYAN}[%s]${RESET} %s" "${spinstr:i++%4:1}" "$message"
+        sleep 0.1
+    done
+    printf "\r${GREEN}[✔]${RESET} %s\n" "$message"
+}
+
+# --- Function: Check and Install Packages (Intelligent) ---
+check_and_install_packages() {
+    log_message "INFO" "Checking required packages..."
+    echo ""
     
-    pkg update -y > /dev/null 2>&1
-    pkg upgrade -y > /dev/null 2>&1
+    local missing_packages=()
+    local installed_packages=()
     
-    local packages=("openssh" "curl" "socat" "netcat-openbsd" "jq" "sshpass")
-    
-    for pkg in "${packages[@]}"; do
-        echo -e "${CYAN}[*]${RESET} Checking $pkg..."
-        if ! command -v $pkg &> /dev/null && [ "$pkg" != "sshpass" ]; then
-            pkg install $pkg -y > /dev/null 2>&1
-        elif [ "$pkg" = "sshpass" ]; then
-            pkg install sshpass -y > /dev/null 2>&1
-        fi
+    # Check each package
+    for pkg in "${REQUIRED_PACKAGES[@]}"; do
+        printf "${CYAN}[*]${RESET} Checking %-20s" "$pkg..."
         
-        sleep 0.5
-        if command -v $pkg &> /dev/null || [ "$pkg" = "sshpass" ] || dpkg -s $pkg &> /dev/null; then
-            echo -e "${GREEN}[+]${RESET} $pkg installed"
+        if command -v "$pkg" &> /dev/null || dpkg -s "$pkg" &> /dev/null; then
+            echo -e "${GREEN}[INSTALLED]${RESET}"
+            installed_packages+=("$pkg")
         else
-            pkg install $pkg -y --force-overwrite > /dev/null 2>&1
+            echo -e "${YELLOW}[MISSING]${RESET}"
+            missing_packages+=("$pkg")
         fi
     done
     
-    # Configure SSH
+    echo ""
+    
+    # Report status
+    if [ ${#missing_packages[@]} -eq 0 ]; then
+        log_message "SUCCESS" "All required packages are installed."
+        return 0
+    fi
+    
+    echo -e "${YELLOW}[!]${RESET} Missing packages: ${missing_packages[*]}"
+    echo -e "${CYAN}[*]${RESET} Internet connection required for installation."
+    echo ""
+    read -p "$(echo -e "${WHITE}Install missing packages now? [Y/n]: ${RESET}")" confirm
+    
+    if [[ "$confirm" =~ ^[Nn] ]]; then
+        log_message "ERROR" "Cannot proceed without required packages."
+        return 1
+    fi
+    
+    echo ""
+    log_message "INFO" "Updating package repositories..."
+    pkg update -y > /dev/null 2>&1 &
+    spinner $! "Updating repositories"
+    
+    log_message "INFO" "Upgrading existing packages..."
+    pkg upgrade -y > /dev/null 2>&1 &
+    spinner $! "Upgrading packages"
+    
+    # Install missing packages
+    for pkg in "${missing_packages[@]}"; do
+        log_message "INFO" "Installing $pkg..."
+        pkg install "$pkg" -y > /dev/null 2>&1 &
+        spinner $! "Installing $pkg"
+        
+        # Verify installation
+        if command -v "$pkg" &> /dev/null || dpkg -s "$pkg" &> /dev/null; then
+            echo -e "${GREEN}[✔]${RESET} $pkg installed successfully"
+        else
+            echo -e "${RED}[✘]${RESET} Failed to install $pkg"
+        fi
+    done
+    
+    echo ""
+    log_message "SUCCESS" "Package installation complete."
+}
+
+# --- Function: Configure SSH ---
+configure_ssh() {
+    log_message "INFO" "Configuring SSH server..."
+    
     if [ ! -f "$PREFIX/etc/ssh/sshd_config.bak" ]; then
         cp "$PREFIX/etc/ssh/sshd_config" "$PREFIX/etc/ssh/sshd_config.bak" 2>/dev/null || true
     fi
@@ -133,12 +227,13 @@ install_dependencies() {
     # Set root password
     echo "root:prvtspyyy" | chpasswd 2>/dev/null || true
     
-    log_message "SUCCESS" "All dependencies installed and verified."
+    log_message "SUCCESS" "SSH configured."
 }
 
 # --- Function: Intelligent SNI Selection ---
 select_best_sni() {
     log_message "INFO" "Probing SNI hosts for best latency..."
+    echo ""
     
     local best_sni=""
     local best_latency=9999
@@ -146,23 +241,24 @@ select_best_sni() {
     local shuffled=($(printf "%s\n" "${SNI_HOSTS[@]}" | shuf))
     
     for sni in "${shuffled[@]}"; do
-        echo -e "${CYAN}[*]${RESET} Testing $sni..."
+        printf "${CYAN}[*]${RESET} Testing %-30s" "$sni..."
         
         local start=$(date +%s%N)
         if timeout 3 bash -c "echo > /dev/tcp/$sni/443" 2>/dev/null; then
             local end=$(date +%s%N)
             local latency=$(( (end - start) / 1000000 ))
-            echo -e "${GREEN}[+]${RESET} $sni: ${latency}ms"
+            echo -e "${GREEN}${latency}ms${RESET}"
             
             if [ $latency -lt $best_latency ]; then
                 best_latency=$latency
                 best_sni=$sni
             fi
         else
-            echo -e "${RED}[✘]${RESET} $sni: unreachable"
+            echo -e "${RED}unreachable${RESET}"
         fi
     done
     
+    echo ""
     if [ -z "$best_sni" ]; then
         best_sni="maya.ph"
         log_message "WARN" "No SNI reachable. Falling back to $best_sni"
@@ -194,7 +290,7 @@ generate_payload() {
     echo "$payload"
 }
 
-# --- Function: Setup and Start SSH Server ---
+# --- Function: Start SSH Server ---
 start_ssh_server() {
     log_message "INFO" "Starting SSH server on port $DEFAULT_SSH_PORT..."
     
@@ -215,23 +311,27 @@ start_ssh_server() {
     return 1
 }
 
-# --- Function: Create SOCKS5 Tunnel (Fixed with sshpass) ---
+# --- Function: Create SOCKS5 Tunnel (Fixed with expect) ---
 create_socks_tunnel() {
     log_message "INFO" "Creating SOCKS5 tunnel on port $DEFAULT_SOCKS_PORT..."
     
     pkill -f "ssh -D $DEFAULT_SOCKS_PORT" 2>/dev/null || true
-    pkill -f "sshpass" 2>/dev/null || true
+    pkill -f "expect" 2>/dev/null || true
     
-    if ! command -v sshpass &> /dev/null; then
-        pkg install sshpass -y > /dev/null 2>&1
-    fi
+    cat > /tmp/ssh-tunnel.exp <<EOF
+#!/usr/bin/expect -f
+set timeout 10
+spawn ssh -D $DEFAULT_SOCKS_PORT -N -o StrictHostKeyChecking=no -o UserKnownHostsFile=/dev/null root@127.0.0.1 -p $DEFAULT_SSH_PORT
+expect {
+    "password:" { send "prvtspyyy\r"; exp_continue }
+    "yes/no" { send "yes\r"; exp_continue }
+    eof
+}
+EOF
     
-    sshpass -p "prvtspyyy" ssh -D "$DEFAULT_SOCKS_PORT" -N -f \
-        -o StrictHostKeyChecking=no \
-        -o UserKnownHostsFile=/dev/null \
-        -o PubkeyAuthentication=no \
-        -o PreferredAuthentications=password \
-        root@127.0.0.1 -p "$DEFAULT_SSH_PORT" 2>/dev/null
+    chmod +x /tmp/ssh-tunnel.exp
+    /tmp/ssh-tunnel.exp &
+    local expect_pid=$!
     
     sleep 3
     
@@ -240,23 +340,20 @@ create_socks_tunnel() {
         return 0
     fi
     
-    # Retry after restarting SSH server
-    start_ssh_server
+    # Fallback to socat
+    log_message "WARN" "SSH tunnel failed. Using socat direct tunnel..."
+    pkill socat 2>/dev/null || true
+    
+    local SNI=$(cat "$SNI_CACHE" 2>/dev/null || echo "maya.ph")
+    socat TCP-LISTEN:$DEFAULT_SOCKS_PORT,fork,reuseaddr EXEC:"echo -e 'GET https://$SNI/ HTTP/1.1\r\nHost: $SNI\r\nUser-Agent: Mozilla/5.0\r\nConnection: Upgrade\r\nUpgrade: websocket\r\n\r\n' & cat" &
+    
     sleep 2
-    
-    sshpass -p "prvtspyyy" ssh -D "$DEFAULT_SOCKS_PORT" -N -f \
-        -o StrictHostKeyChecking=no \
-        -o UserKnownHostsFile=/dev/null \
-        root@127.0.0.1 -p "$DEFAULT_SSH_PORT" 2>/dev/null
-    
-    sleep 3
-    
     if netstat -tlnp 2>/dev/null | grep -q "$DEFAULT_SOCKS_PORT"; then
-        log_message "SUCCESS" "SOCKS5 proxy active on 127.0.0.1:$DEFAULT_SOCKS_PORT"
+        log_message "SUCCESS" "Socat proxy active on 127.0.0.1:$DEFAULT_SOCKS_PORT"
         return 0
     fi
     
-    log_message "ERROR" "SOCKS5 tunnel failed. Run 'v1' and select Option 1 for full setup."
+    log_message "ERROR" "All tunnel methods failed."
     return 1
 }
 
@@ -323,9 +420,16 @@ show_about() {
 
 # --- Function: Full Setup ---
 full_setup() {
-    show_banner
+    glowing_banner
     log_message "INFO" "Starting full setup..."
-    install_dependencies
+    
+    if ! check_and_install_packages; then
+        log_message "ERROR" "Package installation failed or cancelled."
+        read -p "Press Enter to return to menu..."
+        return 1
+    fi
+    
+    configure_ssh
     select_best_sni
     generate_payload "$(cat $SNI_CACHE)"
     start_ssh_server
@@ -355,6 +459,7 @@ stop_tunnel() {
     log_message "INFO" "Stopping all services..."
     pkill sshd 2>/dev/null || true
     pkill -f "ssh -D" 2>/dev/null || true
+    pkill socat 2>/dev/null || true
     log_message "SUCCESS" "Tunnel stopped."
 }
 
@@ -427,8 +532,4 @@ if [ ! -f "$HOME/.termux/bin/v1" ]; then
     setup_v1_command
     echo -e "${GREEN}[✔]${RESET} Command 'v1' installed."
     echo -e "${CYAN}[*]${RESET} Restart Termux or run: source ~/.bashrc"
-    echo -e "${CYAN}[*]${RESET} Then type 'v1' to launch."
-    exit 0
-fi
-
-main_menu
+    echo -e "${CYAN}[*]${RESET} Then type 'v1' 
