@@ -522,3 +522,122 @@ show_about() {
 }
 
 # --- Function: Full Setup ---
+full_setup() {
+    show_banner
+    log_message "INFO" "Starting full setup..."
+    
+    check_and_install_packages || {
+        log_message "ERROR" "Package installation failed"
+        return 1
+    }
+    
+    configure_ssh
+    select_best_sni
+    generate_payload "$(cat "$SNI_CACHE")"
+    start_ssh_server
+    create_socks_tunnel
+    
+    echo ""
+    glowing_progress "Full setup complete! Tunnel is active" 3
+    show_vpn_compatibility
+}
+
+# --- Function: Start Tunnel Only ---
+start_tunnel() {
+    show_banner
+    if ! ps aux | grep -v grep | grep -q "sshd -p $DEFAULT_SSH_PORT"; then
+        start_ssh_server
+    else
+        log_message "INFO" "SSH server already running"
+    fi
+    
+    create_socks_tunnel
+    show_vpn_compatibility
+}
+
+# --- Function: Stop Tunnel ---
+stop_tunnel() {
+    show_banner
+    log_message "INFO" "Stopping all services..."
+    pkill sshd 2>/dev/null || true
+    pkill -f "ssh -D" 2>/dev/null || true
+    pkill socat 2>/dev/null || true
+    glowing_progress "Tunnel stopped" 1
+}
+
+# --- Function: Rotate SNI and Payload ---
+rotate_sni() {
+    show_banner
+    log_message "INFO" "Rotating SNI and regenerating payload..."
+    select_best_sni
+    generate_payload "$(cat "$SNI_CACHE")"
+    stop_tunnel
+    sleep 1
+    start_tunnel
+}
+
+# --- Function: Auto-Setup v1 Command ---
+setup_v1_command() {
+    local SCRIPT_PATH=$(realpath "$0")
+    local BIN_DIR="$HOME/.termux/bin"
+    local COMMAND_FILE="$BIN_DIR/v1"
+    
+    mkdir -p "$BIN_DIR"
+    
+    cat > "$COMMAND_FILE" <<EOF
+#!/data/data/com.termux/files/usr/bin/bash
+exec bash "$SCRIPT_PATH"
+EOF
+    
+    chmod +x "$COMMAND_FILE"
+    
+    if ! grep -q ".termux/bin" ~/.bashrc 2>/dev/null; then
+        echo 'export PATH="$HOME/.termux/bin:$PATH"' >> ~/.bashrc
+    fi
+}
+
+# --- Main Menu ---
+main_menu() {
+    while true; do
+        show_banner
+        echo -e "${BOLD}${BLUE}══════════════════════════════════════════════════════════════${RESET}"
+        echo -e "${BOLD}${WHITE}                       MAIN MENU${RESET}"
+        echo -e "${BOLD}${BLUE}══════════════════════════════════════════════════════════════${RESET}\n"
+        
+        echo -e "  ${BOLD}${WHITE}[1]${RESET} ${LGREEN}Full Setup${RESET} (Install & Configure Everything)"
+        echo -e "  ${BOLD}${WHITE}[2]${RESET} ${CYAN}Start Tunnel${RESET} (Activate SSH + SOCKS5)"
+        echo -e "  ${BOLD}${WHITE}[3]${RESET} ${RED}Stop Tunnel${RESET}"
+        echo -e "  ${BOLD}${WHITE}[4]${RESET} ${YELLOW}Rotate SNI/Payload${RESET} (Fix connection issues)"
+        echo -e "  ${BOLD}${WHITE}[5]${RESET} ${PURPLE}VPN App Compatibility${RESET}"
+        echo -e "  ${BOLD}${WHITE}[6]${RESET} ${LBLUE}User Guide & Troubleshooting${RESET}"
+        echo -e "  ${BOLD}${WHITE}[7]${RESET} ${CYAN}About${RESET}"
+        echo -e "  ${BOLD}${WHITE}[8]${RESET} ${PURPLE}Change Password${RESET}"
+        echo -e "  ${BOLD}${WHITE}[9]${RESET} ${RED}Exit${RESET}\n"
+        
+        read -p "$(echo -e "${BOLD}${WHITE}Select option [1-9]: ${RESET}")" choice
+        
+        case $choice in
+            1) full_setup; read -p "Press Enter to continue..." ;;
+            2) start_tunnel; read -p "Press Enter to continue..." ;;
+            3) stop_tunnel; read -p "Press Enter to continue..." ;;
+            4) rotate_sni; read -p "Press Enter to continue..." ;;
+            5) show_banner; show_vpn_compatibility; read -p "Press Enter to continue..." ;;
+            6) show_banner; show_guide; read -p "Press Enter to continue..." ;;
+            7) show_banner; show_about; read -p "Press Enter to continue..." ;;
+            8) show_banner; set_custom_password; read -p "Press Enter to continue..." ;;
+            9) echo -e "\n${GREEN}[+]${RESET} Exiting V1 TESTER PROTOCOL. Goodbye."; exit 0 ;;
+            *) echo -e "\n${RED}[✘]${RESET} Invalid option. Please try again."; sleep 1 ;;
+        esac
+    done
+}
+
+# --- Entry Point ---
+if [ ! -f "$HOME/.termux/bin/v1" ]; then
+    setup_v1_command
+    echo -e "${GREEN}[✔]${RESET} Command 'v1' installed."
+    echo -e "${CYAN}[*]${RESET} Restart Termux or run: source ~/.bashrc"
+    echo -e "${CYAN}[*]${RESET} Then type 'v1' to launch."
+    exit 0
+fi
+
+main_menu
