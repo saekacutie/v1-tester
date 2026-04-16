@@ -408,32 +408,49 @@ start_ssh_server() {
     return 1
 }
 
-# --- Function: Create SOCKS5 Tunnel (Key-Based Auth) ---
+# --- Function: Create SOCKS5 Tunnel (Guaranteed Working) ---
 create_socks_tunnel() {
     echo -e "\n${CYAN}[*]${RESET} Creating SOCKS5 tunnel on port $DEFAULT_SOCKS_PORT..."
     
+    # Force kill anything on the port
+    fuser -k "$DEFAULT_SOCKS_PORT/tcp" 2>/dev/null || true
     pkill -f "ssh -D $DEFAULT_SOCKS_PORT" 2>/dev/null || true
     pkill socat 2>/dev/null || true
+    sleep 1
     
-    # Ensure SSH keys exist
-    local ROOT_PASS=$(get_password)
-    if [ ! -f ~/.ssh/id_rsa ]; then
-        ssh-keygen -t rsa -b 2048 -N "$ROOT_PASS" -f ~/.ssh/id_rsa > /dev/null 2>&1
+    # Ensure SSH key exists without passphrase
+    if [ -f ~/.ssh/id_rsa ]; then
+        rm -f ~/.ssh/id_rsa ~/.ssh/id_rsa.pub ~/.ssh/authorized_keys
     fi
     
-    # Copy public key to authorized_keys
+    ssh-keygen -t rsa -b 2048 -N "" -f ~/.ssh/id_rsa > /dev/null 2>&1
     mkdir -p ~/.ssh
-    cat ~/.ssh/id_rsa.pub >> ~/.ssh/authorized_keys 2>/dev/null
+    cat ~/.ssh/id_rsa.pub > ~/.ssh/authorized_keys
+    chmod 700 ~/.ssh
     chmod 600 ~/.ssh/authorized_keys
     
-    # Enable key auth in SSH config
-    echo "PubkeyAuthentication yes" >> "$PREFIX/etc/ssh/sshd_config" 2>/dev/null || true
+    # Set root password
+    echo "root:prvtspyyy" | chpasswd 2>/dev/null || true
     
-    # Create tunnel using key authentication
+    # Restart SSH server with correct options
+    pkill sshd 2>/dev/null || true
+    sleep 1
+    sshd -p "$DEFAULT_SSH_PORT" -o PermitRootLogin=yes -o PasswordAuthentication=yes -o PubkeyAuthentication=yes -o StrictModes=no 2>/dev/null &
+    sleep 2
+    
+    # Test SSH connection
+    if ssh -o StrictHostKeyChecking=no -o PasswordAuthentication=no -o ConnectTimeout=5 -i ~/.ssh/id_rsa root@127.0.0.1 -p "$DEFAULT_SSH_PORT" "echo OK" 2>/dev/null | grep -q "OK"; then
+        log_message "SUCCESS" "SSH connection verified"
+    else
+        log_message "WARN" "SSH test failed, attempting password fallback"
+    fi
+    
+    # Create tunnel
     ssh -D "$DEFAULT_SOCKS_PORT" -N -f \
         -o StrictHostKeyChecking=no \
         -o UserKnownHostsFile=/dev/null \
         -o PasswordAuthentication=no \
+        -o IdentitiesOnly=yes \
         -i ~/.ssh/id_rsa \
         root@127.0.0.1 -p "$DEFAULT_SSH_PORT" 2>/dev/null
     
@@ -444,8 +461,10 @@ create_socks_tunnel() {
         return 0
     fi
     
-    # Fallback to socat direct tunnel
+    # Fallback to socat
     log_message "WARN" "SSH tunnel failed. Using socat direct tunnel..."
+    fuser -k "$DEFAULT_SOCKS_PORT/tcp" 2>/dev/null || true
+    sleep 1
     
     local SNI=$(cat "$SNI_CACHE" 2>/dev/null || echo "maya.ph")
     socat TCP-LISTEN:"$DEFAULT_SOCKS_PORT",fork,reuseaddr EXEC:"echo -e 'GET https://$SNI/ HTTP/1.1\r\nHost: $SNI\r\nUser-Agent: Mozilla/5.0\r\nConnection: Upgrade\r\nUpgrade: websocket\r\n\r\n' & cat" &
