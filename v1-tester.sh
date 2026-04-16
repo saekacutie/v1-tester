@@ -491,6 +491,7 @@ create_socks_tunnel() {
 show_vpn_compatibility() {
     local current_sni=$(cat "$SNI_CACHE" 2>/dev/null || echo "maya.ph")
     local current_payload=$(cat "$PAYLOAD_CACHE" 2>/dev/null | head -c 80 || echo "Not generated yet")
+    local active_port=$(cat "$ACTIVE_PORT_FILE" 2>/dev/null || echo "$DEFAULT_SOCKS_PORT")
     
     echo -e "\n${BOLD}${BLUE}══════════════════════════════════════════════════════════════${RESET}"
     echo -e "${BOLD}${WHITE}                   VPN APP COMPATIBILITY${RESET}"
@@ -506,7 +507,7 @@ show_vpn_compatibility() {
     echo -e "${BOLD}${LGREEN}v2rayNG / Nekobox / Browsers:${RESET}"
     echo -e "  Protocol: ${CYAN}SOCKS5${RESET}"
     echo -e "  Address: ${CYAN}127.0.0.1${RESET}"
-    echo -e "  Port: ${CYAN}$DEFAULT_SOCKS_PORT${RESET}"
+    echo -e "  Port: ${CYAN}$active_port${RESET}"
     echo ""
 }
 
