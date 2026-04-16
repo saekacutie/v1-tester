@@ -386,5 +386,33 @@ main_menu() {
     done
 }
 
+# --- Auto-Setup v1 Command ---
+setup_v1_command() {
+    local SCRIPT_PATH=$(realpath "$0")
+    local BIN_DIR="$HOME/.termux/bin"
+    local COMMAND_FILE="$BIN_DIR/v1"
+    
+    mkdir -p "$BIN_DIR"
+    
+    cat > "$COMMAND_FILE" <<EOF
+#!/data/data/com.termux/files/usr/bin/bash
+exec bash "$SCRIPT_PATH"
+EOF
+    
+    chmod +x "$COMMAND_FILE"
+    
+    if ! grep -q ".termux/bin" ~/.bashrc; then
+        echo 'export PATH="$HOME/.termux/bin:$PATH"' >> ~/.bashrc
+    fi
+}
+
 # --- Entry Point ---
+if [ ! -f "$HOME/.termux/bin/v1" ]; then
+    setup_v1_command
+    echo -e "${GREEN}[✔]${RESET} Command 'v1' installed."
+    echo -e "${CYAN}[*]${RESET} Restart Termux or run: source ~/.bashrc"
+    echo -e "${CYAN}[*]${RESET} Then type 'v1' to launch."
+    exit 0
+fi
+
 main_menu
