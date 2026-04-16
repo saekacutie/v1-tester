@@ -532,4 +532,8 @@ if [ ! -f "$HOME/.termux/bin/v1" ]; then
     setup_v1_command
     echo -e "${GREEN}[✔]${RESET} Command 'v1' installed."
     echo -e "${CYAN}[*]${RESET} Restart Termux or run: source ~/.bashrc"
-    echo -e "${CYAN}[*]${RESET} Then type 'v1' 
+    echo -e "${CYAN}[*]${RESET} Then type 'v1' to launch."
+    exit 0
+fi
+
+main_menu
