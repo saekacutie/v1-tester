@@ -271,31 +271,36 @@ check_and_install_packages() {
     return 0
 }
 
-# --- Function: Configure SSH ---
+# --- Function: Configure SSH (Termux Compatible - No UsePAM) ---
 configure_ssh() {
     echo -e "\n${CYAN}[*]${RESET} Configuring SSH server..."
+    
+    # Remove unsupported UsePAM lines if they exist
+    sed -i '/UsePAM/d' "$PREFIX/etc/ssh/sshd_config" 2>/dev/null || true
     
     if [ ! -f "$PREFIX/etc/ssh/sshd_config.bak" ]; then
         cp "$PREFIX/etc/ssh/sshd_config" "$PREFIX/etc/ssh/sshd_config.bak" 2>/dev/null || true
     fi
     
+    # Add only supported options
     echo "Port $DEFAULT_SSH_PORT" >> "$PREFIX/etc/ssh/sshd_config" 2>/dev/null || true
     echo "PermitRootLogin yes" >> "$PREFIX/etc/ssh/sshd_config" 2>/dev/null || true
     echo "PasswordAuthentication yes" >> "$PREFIX/etc/ssh/sshd_config" 2>/dev/null || true
     echo "PubkeyAuthentication yes" >> "$PREFIX/etc/ssh/sshd_config" 2>/dev/null || true
-    echo "UsePAM no" >> "$PREFIX/etc/ssh/sshd_config" 2>/dev/null || true
     
+    # Generate SSH host keys if missing
     if [ ! -f "$PREFIX/etc/ssh/ssh_host_rsa_key" ]; then
         ssh-keygen -A > /dev/null 2>&1 &
         spinner $! "Generating SSH host keys"
     fi
     
+    # Set root password
     local ROOT_PASS=$(get_password)
     echo "root:$ROOT_PASS" | chpasswd 2>/dev/null || true
     
-    # Setup SSH keys for passwordless auth
+    # Generate SSH key without passphrase for auto-login
     if [ ! -f ~/.ssh/id_rsa ]; then
-        ssh-keygen -t rsa -b 2048 -N "$ROOT_PASS" -f ~/.ssh/id_rsa > /dev/null 2>&1
+        ssh-keygen -t rsa -b 2048 -N "" -f ~/.ssh/id_rsa > /dev/null 2>&1
     fi
     
     mkdir -p ~/.ssh
@@ -304,7 +309,6 @@ configure_ssh() {
     
     log_message "SUCCESS" "SSH configured"
 }
-
 # --- Function: Intelligent SNI Selection (Probes All 40+ Hosts) ---
 select_best_sni() {
     echo -e "\n${BOLD}${BLUE}══════════════════════════════════════════════════════════════${RESET}"
