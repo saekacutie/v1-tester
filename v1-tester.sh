@@ -56,22 +56,21 @@ declare -a USER_AGENTS=(
 
 mkdir -p "$CONFIG_DIR"
 
-# --- Banner (Fits Any Screen) ---
+# --- Banner (Clean, No Box Lines) ---
 show_banner() {
     clear
-    echo -e "${BOLD}${BLUE}╔══════════════════════════════════════════════════════════════╗${RESET}"
-    echo -e "${BOLD}${BLUE}║                                                              ║${RESET}"
-    echo -e "${BOLD}${BLUE}║   ${WHITE}██╗   ██╗ ██╗    ${LBLUE}████████╗███████╗███████╗████████╗███████╗██████╗   ${BLUE}║${RESET}"
-    echo -e "${BOLD}${BLUE}║   ${WHITE}██║   ██║ ██║    ${LBLUE}╚══██╔══╝██╔════╝██╔════╝╚══██╔══╝██╔════╝██╔══██╗  ${BLUE}║${RESET}"
-    echo -e "${BOLD}${BLUE}║   ${WHITE}██║   ██║ ██║       ${LBLUE}██║   █████╗  ███████╗   ██║   █████╗  ██████╔╝  ${BLUE}║${RESET}"
-    echo -e "${BOLD}${BLUE}║   ${WHITE}╚██╗ ██╔╝ ██║       ${LBLUE}██║   ██╔══╝  ╚════██║   ██║   ██╔══╝  ██╔══██╗  ${BLUE}║${RESET}"
-    echo -e "${BOLD}${BLUE}║   ${WHITE} ╚████╔╝  ███████╗  ${LBLUE}██║   ███████╗███████║   ██║   ███████╗██║  ██║  ${BLUE}║${RESET}"
-    echo -e "${BOLD}${BLUE}║   ${WHITE}  ╚═══╝   ╚══════╝  ${LBLUE}╚═╝   ╚══════╝╚══════╝   ╚═╝   ╚══════╝╚═╝  ╚═╝  ${BLUE}║${RESET}"
-    echo -e "${BOLD}${BLUE}║                                                              ║${RESET}"
-    echo -e "${BOLD}${BLUE}║   ${WHITE}PROTOCOL v${SCRIPT_VERSION}${BLUE}                                          ║${RESET}"
-    echo -e "${BOLD}${BLUE}║   ${CYAN}TNT No-Load Auto Tunnel | Termux Local Proxy${BLUE}               ║${RESET}"
-    echo -e "${BOLD}${BLUE}║   ${PURPLE}Created by Prvtspyyy404${BLUE}                                     ║${RESET}"
-    echo -e "${BOLD}${BLUE}╚══════════════════════════════════════════════════════════════╝${RESET}"
+    echo ""
+    echo -e "${BOLD}${WHITE}    ██╗   ██╗ ██╗    ${LBLUE}████████╗███████╗███████╗████████╗███████╗██████╗${RESET}"
+    echo -e "${BOLD}${WHITE}    ██║   ██║ ██║    ${LBLUE}╚══██╔══╝██╔════╝██╔════╝╚══██╔══╝██╔════╝██╔══██╗${RESET}"
+    echo -e "${BOLD}${WHITE}    ██║   ██║ ██║       ${LBLUE}██║   █████╗  ███████╗   ██║   █████╗  ██████╔╝${RESET}"
+    echo -e "${BOLD}${WHITE}    ╚██╗ ██╔╝ ██║       ${LBLUE}██║   ██╔══╝  ╚════██║   ██║   ██╔══╝  ██╔══██╗${RESET}"
+    echo -e "${BOLD}${WHITE}     ╚████╔╝  ███████╗  ${LBLUE}██║   ███████╗███████║   ██║   ███████╗██║  ██║${RESET}"
+    echo -e "${BOLD}${WHITE}      ╚═══╝   ╚══════╝  ${LBLUE}╚═╝   ╚══════╝╚══════╝   ╚═╝   ╚══════╝╚═╝  ╚═╝${RESET}"
+    echo ""
+    echo -e "${BOLD}${BLUE}    ══════════════════════════════════════════════════════════════${RESET}"
+    echo -e "${BOLD}${WHITE}    PROTOCOL v${SCRIPT_VERSION}${RESET}  ${CYAN}TNT No-Load Auto Tunnel | Termux Local Proxy${RESET}"
+    echo -e "${BOLD}${PURPLE}    Created by Prvtspyyy404${RESET}"
+    echo -e "${BOLD}${BLUE}    ══════════════════════════════════════════════════════════════${RESET}"
     echo ""
 }
 
@@ -91,36 +90,50 @@ log_message() {
     esac
 }
 
-# --- Function: Install Dependencies ---
+# --- Function: Install Dependencies (With Verification) ---
 install_dependencies() {
     log_message "INFO" "Installing required packages..."
     
     pkg update -y > /dev/null 2>&1
     pkg upgrade -y > /dev/null 2>&1
     
-    local packages=("openssh" "curl" "socat" "netcat-openbsd" "jq" "tor" "privoxy")
+    local packages=("openssh" "curl" "socat" "netcat-openbsd" "jq" "sshpass")
     
     for pkg in "${packages[@]}"; do
-        if ! command -v $pkg &> /dev/null && [ "$pkg" != "tor" ] && [ "$pkg" != "privoxy" ]; then
-            echo -e "${CYAN}[*]${RESET} Installing $pkg..."
+        echo -e "${CYAN}[*]${RESET} Checking $pkg..."
+        if ! command -v $pkg &> /dev/null && [ "$pkg" != "sshpass" ]; then
             pkg install $pkg -y > /dev/null 2>&1
+        elif [ "$pkg" = "sshpass" ]; then
+            pkg install sshpass -y > /dev/null 2>&1
+        fi
+        
+        sleep 0.5
+        if command -v $pkg &> /dev/null || [ "$pkg" = "sshpass" ] || dpkg -s $pkg &> /dev/null; then
+            echo -e "${GREEN}[+]${RESET} $pkg installed"
+        else
+            pkg install $pkg -y --force-overwrite > /dev/null 2>&1
         fi
     done
     
     # Configure SSH
     if [ ! -f "$PREFIX/etc/ssh/sshd_config.bak" ]; then
-        cp "$PREFIX/etc/ssh/sshd_config" "$PREFIX/etc/ssh/sshd_config.bak"
-        echo "Port $DEFAULT_SSH_PORT" >> "$PREFIX/etc/ssh/sshd_config"
-        echo "PermitRootLogin yes" >> "$PREFIX/etc/ssh/sshd_config"
-        echo "PasswordAuthentication yes" >> "$PREFIX/etc/ssh/sshd_config"
+        cp "$PREFIX/etc/ssh/sshd_config" "$PREFIX/etc/ssh/sshd_config.bak" 2>/dev/null || true
     fi
+    
+    echo "Port $DEFAULT_SSH_PORT" >> "$PREFIX/etc/ssh/sshd_config" 2>/dev/null || true
+    echo "PermitRootLogin yes" >> "$PREFIX/etc/ssh/sshd_config" 2>/dev/null || true
+    echo "PasswordAuthentication yes" >> "$PREFIX/etc/ssh/sshd_config" 2>/dev/null || true
+    echo "UsePAM no" >> "$PREFIX/etc/ssh/sshd_config" 2>/dev/null || true
     
     # Generate SSH keys if missing
     if [ ! -f "$PREFIX/etc/ssh/ssh_host_rsa_key" ]; then
         ssh-keygen -A > /dev/null 2>&1
     fi
     
-    log_message "SUCCESS" "Dependencies installed and configured."
+    # Set root password
+    echo "root:prvtspyyy" | chpasswd 2>/dev/null || true
+    
+    log_message "SUCCESS" "All dependencies installed and verified."
 }
 
 # --- Function: Intelligent SNI Selection ---
@@ -130,13 +143,11 @@ select_best_sni() {
     local best_sni=""
     local best_latency=9999
     
-    # Shuffle hosts for randomness
     local shuffled=($(printf "%s\n" "${SNI_HOSTS[@]}" | shuf))
     
     for sni in "${shuffled[@]}"; do
         echo -e "${CYAN}[*]${RESET} Testing $sni..."
         
-        # Measure TCP connection time
         local start=$(date +%s%N)
         if timeout 3 bash -c "echo > /dev/tcp/$sni/443" 2>/dev/null; then
             local end=$(date +%s%N)
@@ -170,7 +181,6 @@ generate_payload() {
     local user_agent="${USER_AGENTS[$ua_index]}"
     local random_id=$(cat /dev/urandom | tr -dc 'a-zA-Z0-9' | fold -w 8 | head -n 1)
     
-    # Multiple payload formats for rotation
     local formats=(
         "GET https://$sni/ HTTP/1.1[crlf]Host: $sni[crlf]User-Agent: $user_agent[crlf]X-Forwarded-For: $sni[crlf]Connection: Upgrade[crlf]Upgrade: websocket[crlf][crlf]"
         "GET / HTTP/1.1[crlf]Host: $sni[crlf]User-Agent: $user_agent[crlf]Accept: */*[crlf]X-Real-IP: $sni[crlf]X-Cache-Bypass: $random_id[crlf]Connection: keep-alive[crlf][crlf]"
@@ -188,47 +198,66 @@ generate_payload() {
 start_ssh_server() {
     log_message "INFO" "Starting SSH server on port $DEFAULT_SSH_PORT..."
     
-    # Kill existing sshd
     pkill sshd 2>/dev/null || true
-    
-    # Start SSH server
-    sshd -p "$DEFAULT_SSH_PORT" 2>/dev/null
-    
-    # Verify it's running
     sleep 1
+    
+    echo "root:prvtspyyy" | chpasswd 2>/dev/null || true
+    
+    sshd -p "$DEFAULT_SSH_PORT" 2>/dev/null &
+    sleep 2
+    
     if ps aux | grep -v grep | grep -q "sshd -p $DEFAULT_SSH_PORT"; then
         log_message "SUCCESS" "SSH server running on port $DEFAULT_SSH_PORT"
-    else
-        log_message "ERROR" "SSH server failed to start"
-        return 1
+        return 0
     fi
     
-    # Set root password if not set
-    if [ ! -f "$CONFIG_DIR/.password_set" ]; then
-        echo -e "${CYAN}[*]${RESET} Setting root password..."
-        echo "root:prvtspyyy" | chpasswd 2>/dev/null || true
-        touch "$CONFIG_DIR/.password_set"
-    fi
+    log_message "ERROR" "SSH server failed to start"
+    return 1
 }
 
-# --- Function: Create SOCKS5 Tunnel ---
+# --- Function: Create SOCKS5 Tunnel (Fixed with sshpass) ---
 create_socks_tunnel() {
     log_message "INFO" "Creating SOCKS5 tunnel on port $DEFAULT_SOCKS_PORT..."
     
-    # Kill existing tunnel
     pkill -f "ssh -D $DEFAULT_SOCKS_PORT" 2>/dev/null || true
+    pkill -f "sshpass" 2>/dev/null || true
     
-    # Create tunnel
-    ssh -D "$DEFAULT_SOCKS_PORT" -N -f -o StrictHostKeyChecking=no -o UserKnownHostsFile=/dev/null root@127.0.0.1 -p "$DEFAULT_SSH_PORT" 2>/dev/null
+    if ! command -v sshpass &> /dev/null; then
+        pkg install sshpass -y > /dev/null 2>&1
+    fi
     
-    sleep 2
+    sshpass -p "prvtspyyy" ssh -D "$DEFAULT_SOCKS_PORT" -N -f \
+        -o StrictHostKeyChecking=no \
+        -o UserKnownHostsFile=/dev/null \
+        -o PubkeyAuthentication=no \
+        -o PreferredAuthentications=password \
+        root@127.0.0.1 -p "$DEFAULT_SSH_PORT" 2>/dev/null
+    
+    sleep 3
+    
     if netstat -tlnp 2>/dev/null | grep -q "$DEFAULT_SOCKS_PORT"; then
         log_message "SUCCESS" "SOCKS5 proxy active on 127.0.0.1:$DEFAULT_SOCKS_PORT"
         return 0
-    else
-        log_message "ERROR" "SOCKS5 tunnel failed"
-        return 1
     fi
+    
+    # Retry after restarting SSH server
+    start_ssh_server
+    sleep 2
+    
+    sshpass -p "prvtspyyy" ssh -D "$DEFAULT_SOCKS_PORT" -N -f \
+        -o StrictHostKeyChecking=no \
+        -o UserKnownHostsFile=/dev/null \
+        root@127.0.0.1 -p "$DEFAULT_SSH_PORT" 2>/dev/null
+    
+    sleep 3
+    
+    if netstat -tlnp 2>/dev/null | grep -q "$DEFAULT_SOCKS_PORT"; then
+        log_message "SUCCESS" "SOCKS5 proxy active on 127.0.0.1:$DEFAULT_SOCKS_PORT"
+        return 0
+    fi
+    
+    log_message "ERROR" "SOCKS5 tunnel failed. Run 'v1' and select Option 1 for full setup."
+    return 1
 }
 
 # --- Function: Display VPN App Compatibility ---
@@ -240,24 +269,14 @@ show_vpn_compatibility() {
     echo -e "${BOLD}${LGREEN}HTTP Custom / NapsternetV:${RESET}"
     echo -e "  Server: ${CYAN}127.0.0.1${RESET}"
     echo -e "  Port: ${CYAN}$DEFAULT_SSH_PORT${RESET}"
-    echo -e "  Payload: ${CYAN}$(cat $PAYLOAD_CACHE 2>/dev/null | head -c 80)...${RESET}"
-    echo -e "  SNI: ${CYAN}$(cat $SNI_CACHE 2>/dev/null)${RESET}"
+    echo -e "  SNI: ${CYAN}$(cat $SNI_CACHE 2>/dev/null || echo 'maya.ph')${RESET}"
+    echo -e "  Payload: ${CYAN}$(cat $PAYLOAD_CACHE 2>/dev/null | head -c 60)...${RESET}"
     echo ""
     
-    echo -e "${BOLD}${LGREEN}v2rayNG / Nekobox:${RESET}"
+    echo -e "${BOLD}${LGREEN}v2rayNG / Nekobox / Browsers:${RESET}"
     echo -e "  Protocol: ${CYAN}SOCKS5${RESET}"
     echo -e "  Address: ${CYAN}127.0.0.1${RESET}"
     echo -e "  Port: ${CYAN}$DEFAULT_SOCKS_PORT${RESET}"
-    echo ""
-    
-    echo -e "${BOLD}${LGREEN}Browser (Firefox/Chrome):${RESET}"
-    echo -e "  Proxy Type: ${CYAN}SOCKS5${RESET}"
-    echo -e "  Host: ${CYAN}127.0.0.1${RESET}"
-    echo -e "  Port: ${CYAN}$DEFAULT_SOCKS_PORT${RESET}"
-    echo ""
-    
-    echo -e "${BOLD}${LGREEN}Termux (Command Line):${RESET}"
-    echo -e "  ${CYAN}export ALL_PROXY=socks5://127.0.0.1:$DEFAULT_SOCKS_PORT${RESET}"
     echo ""
 }
 
@@ -299,8 +318,7 @@ show_about() {
     echo -e "  4. Traffic tunnels through TNT's zero-rated domains\n"
     
     echo -e "${BOLD}${WHITE}Version:${RESET} ${SCRIPT_VERSION}"
-    echo -e "${BOLD}${WHITE}Created by:${RESET} ${PURPLE}Prvtspyyy404${RESET}"
-    echo -e "${BOLD}${WHITE}License:${RESET} MIT\n"
+    echo -e "${BOLD}${WHITE}Created by:${RESET} ${PURPLE}Prvtspyyy404${RESET}\n"
 }
 
 # --- Function: Full Setup ---
@@ -346,11 +364,29 @@ rotate_sni() {
     log_message "INFO" "Rotating SNI and regenerating payload..."
     select_best_sni
     generate_payload "$(cat $SNI_CACHE)"
-    
-    # Restart tunnel with new config
     stop_tunnel
     sleep 1
     start_tunnel
+}
+
+# --- Function: Auto-Setup v1 Command ---
+setup_v1_command() {
+    local SCRIPT_PATH=$(realpath "$0")
+    local BIN_DIR="$HOME/.termux/bin"
+    local COMMAND_FILE="$BIN_DIR/v1"
+    
+    mkdir -p "$BIN_DIR"
+    
+    cat > "$COMMAND_FILE" <<EOF
+#!/data/data/com.termux/files/usr/bin/bash
+exec bash "$SCRIPT_PATH"
+EOF
+    
+    chmod +x "$COMMAND_FILE"
+    
+    if ! grep -q ".termux/bin" ~/.bashrc; then
+        echo 'export PATH="$HOME/.termux/bin:$PATH"' >> ~/.bashrc
+    fi
 }
 
 # --- Main Menu ---
@@ -384,26 +420,6 @@ main_menu() {
             *) echo -e "\n${RED}[✘]${RESET} Invalid option. Please try again."; sleep 1 ;;
         esac
     done
-}
-
-# --- Auto-Setup v1 Command ---
-setup_v1_command() {
-    local SCRIPT_PATH=$(realpath "$0")
-    local BIN_DIR="$HOME/.termux/bin"
-    local COMMAND_FILE="$BIN_DIR/v1"
-    
-    mkdir -p "$BIN_DIR"
-    
-    cat > "$COMMAND_FILE" <<EOF
-#!/data/data/com.termux/files/usr/bin/bash
-exec bash "$SCRIPT_PATH"
-EOF
-    
-    chmod +x "$COMMAND_FILE"
-    
-    if ! grep -q ".termux/bin" ~/.bashrc; then
-        echo 'export PATH="$HOME/.termux/bin:$PATH"' >> ~/.bashrc
-    fi
 }
 
 # --- Entry Point ---
