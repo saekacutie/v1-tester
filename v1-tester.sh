@@ -408,70 +408,78 @@ start_ssh_server() {
     return 1
 }
 
-# --- Function: Create SOCKS5 Tunnel (Guaranteed Working) ---
+# --- Function: Create SOCKS5 Tunnel (Auto Port Selection) ---
 create_socks_tunnel() {
-    echo -e "\n${CYAN}[*]${RESET} Creating SOCKS5 tunnel on port $DEFAULT_SOCKS_PORT..."
+    echo -e "\n${CYAN}[*]${RESET} Creating SOCKS5 tunnel..."
     
-    # Force kill anything on the port
-    fuser -k "$DEFAULT_SOCKS_PORT/tcp" 2>/dev/null || true
-    pkill -f "ssh -D $DEFAULT_SOCKS_PORT" 2>/dev/null || true
+    # Try ports starting from DEFAULT_SOCKS_PORT
+    local port=$DEFAULT_SOCKS_PORT
+    local max_attempts=10
+    local attempt=0
+    local tunnel_pid=""
+    
+    # Kill any existing SSH tunnels and socat processes
+    pkill -f "ssh -D" 2>/dev/null || true
     pkill socat 2>/dev/null || true
-    sleep 1
     
-    # Ensure SSH key exists without passphrase
-    if [ -f ~/.ssh/id_rsa ]; then
-        rm -f ~/.ssh/id_rsa ~/.ssh/id_rsa.pub ~/.ssh/authorized_keys
-    fi
+    while [ $attempt -lt $max_attempts ]; do
+        # Check if port is in use and kill the process
+        if netstat -tlnp 2>/dev/null | grep -q ":$port "; then
+            echo -e "${YELLOW}[!]${RESET} Port $port is occupied. Killing process..."
+            fuser -k "$port/tcp" 2>/dev/null || true
+            sleep 1
+        fi
+        
+        echo -e "${CYAN}[*]${RESET} Trying port $port..."
+        
+        # Ensure SSH keys exist without passphrase
+        if [ ! -f ~/.ssh/id_rsa ]; then
+            ssh-keygen -t rsa -b 2048 -N "" -f ~/.ssh/id_rsa > /dev/null 2>&1
+        fi
+        
+        mkdir -p ~/.ssh
+        cat ~/.ssh/id_rsa.pub >> ~/.ssh/authorized_keys 2>/dev/null
+        chmod 600 ~/.ssh/authorized_keys
+        
+        # Attempt SSH tunnel
+        ssh -D "$port" -N -f \
+            -o StrictHostKeyChecking=no \
+            -o UserKnownHostsFile=/dev/null \
+            -o PasswordAuthentication=no \
+            -o IdentitiesOnly=yes \
+            -i ~/.ssh/id_rsa \
+            root@127.0.0.1 -p "$DEFAULT_SSH_PORT" 2>/dev/null
+        
+        sleep 3
+        
+        if netstat -tlnp 2>/dev/null | grep -q ":$port "; then
+            glowing_progress "SOCKS5 proxy active on 127.0.0.1:$port" 2
+            # Save the working port
+            echo "$port" > "$CONFIG_DIR/active_port.txt"
+            return 0
+        fi
+        
+        echo -e "${YELLOW}[!]${RESET} Port $port failed."
+        attempt=$((attempt + 1))
+        port=$((port + 1))
+    done
     
-    ssh-keygen -t rsa -b 2048 -N "" -f ~/.ssh/id_rsa > /dev/null 2>&1
-    mkdir -p ~/.ssh
-    cat ~/.ssh/id_rsa.pub > ~/.ssh/authorized_keys
-    chmod 700 ~/.ssh
-    chmod 600 ~/.ssh/authorized_keys
-    
-    # Set root password
-    echo "root:prvtspyyy" | chpasswd 2>/dev/null || true
-    
-    # Restart SSH server with correct options
-    pkill sshd 2>/dev/null || true
-    sleep 1
-    sshd -p "$DEFAULT_SSH_PORT" -o PermitRootLogin=yes -o PasswordAuthentication=yes -o PubkeyAuthentication=yes -o StrictModes=no 2>/dev/null &
-    sleep 2
-    
-    # Test SSH connection
-    if ssh -o StrictHostKeyChecking=no -o PasswordAuthentication=no -o ConnectTimeout=5 -i ~/.ssh/id_rsa root@127.0.0.1 -p "$DEFAULT_SSH_PORT" "echo OK" 2>/dev/null | grep -q "OK"; then
-        log_message "SUCCESS" "SSH connection verified"
-    else
-        log_message "WARN" "SSH test failed, attempting password fallback"
-    fi
-    
-    # Create tunnel
-    ssh -D "$DEFAULT_SOCKS_PORT" -N -f \
-        -o StrictHostKeyChecking=no \
-        -o UserKnownHostsFile=/dev/null \
-        -o PasswordAuthentication=no \
-        -o IdentitiesOnly=yes \
-        -i ~/.ssh/id_rsa \
-        root@127.0.0.1 -p "$DEFAULT_SSH_PORT" 2>/dev/null
-    
-    sleep 3
-    
-    if netstat -tlnp 2>/dev/null | grep -q "$DEFAULT_SOCKS_PORT"; then
-        glowing_progress "SOCKS5 proxy active on 127.0.0.1:$DEFAULT_SOCKS_PORT" 2
-        return 0
-    fi
-    
-    # Fallback to socat
+    # Fallback to socat with unique port
     log_message "WARN" "SSH tunnel failed. Using socat direct tunnel..."
-    fuser -k "$DEFAULT_SOCKS_PORT/tcp" 2>/dev/null || true
-    sleep 1
+    
+    port=$DEFAULT_SOCKS_PORT
+    while netstat -tlnp 2>/dev/null | grep -q ":$port "; do
+        fuser -k "$port/tcp" 2>/dev/null || true
+        port=$((port + 1))
+    done
     
     local SNI=$(cat "$SNI_CACHE" 2>/dev/null || echo "maya.ph")
-    socat TCP-LISTEN:"$DEFAULT_SOCKS_PORT",fork,reuseaddr EXEC:"echo -e 'GET https://$SNI/ HTTP/1.1\r\nHost: $SNI\r\nUser-Agent: Mozilla/5.0\r\nConnection: Upgrade\r\nUpgrade: websocket\r\n\r\n' & cat" &
+    socat TCP-LISTEN:"$port",fork,reuseaddr EXEC:"echo -e 'GET https://$SNI/ HTTP/1.1\r\nHost: $SNI\r\nUser-Agent: Mozilla/5.0\r\nConnection: Upgrade\r\nUpgrade: websocket\r\n\r\n' & cat" &
     
     sleep 2
-    if netstat -tlnp 2>/dev/null | grep -q "$DEFAULT_SOCKS_PORT"; then
-        glowing_progress "Socat proxy active on 127.0.0.1:$DEFAULT_SOCKS_PORT" 2
+    if netstat -tlnp 2>/dev/null | grep -q ":$port "; then
+        glowing_progress "Socat proxy active on 127.0.0.1:$port" 2
+        echo "$port" > "$CONFIG_DIR/active_port.txt"
         return 0
     fi
     
